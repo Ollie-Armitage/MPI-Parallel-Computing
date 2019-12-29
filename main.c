@@ -33,6 +33,7 @@ int main(int argc, char *argv[]) {
         INITIAL_ARRAY = generate_non_random_array();
     } else { INITIAL_ARRAY = generate_random_array(DIMENSIONS); }
 
+    printf("Initial Array: \n");
     print_2d_array(INITIAL_ARRAY, DIMENSIONS);
     printf("\n");
 
@@ -42,12 +43,16 @@ int main(int argc, char *argv[]) {
     /* Argument setup ends. */
 
 
+    MPI_Init(&argc, &argv);
+
     /* Function averages array and returns the number of precision loops performed. */
     size_t loop_count = average_array(INITIAL_ARRAY, DIMENSIONS, PRECISION);
 
     print_2d_array(INITIAL_ARRAY, DIMENSIONS);
     printf("\nFinished in %zu runs\n", loop_count);
     free_array(INITIAL_ARRAY, DIMENSIONS);
+
+    MPI_Finalize();
 
     return 0;
 }
@@ -60,6 +65,7 @@ void free_array(double **array, size_t dimensions) {
 }
 
 size_t average_array(double **INITIAL_ARRAY, size_t DIMENSIONS, double PRECISION) {
+    /* This is where the program needs to be parallelized. */
 
     bool precision_flag = false;
     int loop_count = 0;

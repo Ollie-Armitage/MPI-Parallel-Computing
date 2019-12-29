@@ -1,43 +1,23 @@
-#include <stdio.h>
-#include <getopt.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <time.h>
-#include <mpi.h>
-
-double **generate_2d_array(int dimensions);
-
-double **generate_non_random_array();
-
-double **generate_random_array(int DIMENSIONS);
-
-int average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION);
-
-void print_2d_array(double **array, size_t dimensions);
-
-int in_precision(double previous_value, double current_value, double precision);
-
-void average(double *answer, const double *up, const double *down, const double *right, const double *left);
-
-void free_array(double **array, size_t dimensions);
+#include "main.h"
 
 int main(int argc, char *argv[]) {
+    /* Argument setup. */
+
     size_t DIMENSIONS = 0;
     double PRECISION = 0;
-    size_t d_test_flag = 1;
-    size_t p_test_flag = 1;
+    bool d_test_flag = false;
+    bool p_test_flag = false;
 
     int opt;
     while ((opt = getopt(argc, argv, "d:p:")) != -1) {
         switch (opt) {
             case 'd':
                 DIMENSIONS = strtoul(optarg, NULL, 10);
-                d_test_flag = 0;
+                d_test_flag = true;
                 break;
             case 'p':
                 PRECISION = strtod(optarg, NULL);
-                p_test_flag = 0;
+                p_test_flag = true;
                 break;
             default:
                 printf("Unrecognised Args. Please use the format %s -d [DIMENSIONS] -p [PRECISION]\n", argv[0]);
@@ -45,9 +25,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
+
     double **INITIAL_ARRAY;
 
-    if (d_test_flag == 1) {
+    if (!d_test_flag) {
         DIMENSIONS = 5;
         INITIAL_ARRAY = generate_non_random_array();
     } else { INITIAL_ARRAY = generate_random_array(DIMENSIONS); }
@@ -55,12 +36,17 @@ int main(int argc, char *argv[]) {
     print_2d_array(INITIAL_ARRAY, DIMENSIONS);
     printf("\n");
 
-    if (p_test_flag == 1) { PRECISION = 0.0000001; }
+    if (!p_test_flag) { PRECISION = 0.0001; }
 
-    int loop_count = average_array(INITIAL_ARRAY, DIMENSIONS, PRECISION);
+
+    /* Argument setup ends. */
+
+
+    /* Function averages array and returns the number of precision loops performed. */
+    size_t loop_count = average_array(INITIAL_ARRAY, DIMENSIONS, PRECISION);
 
     print_2d_array(INITIAL_ARRAY, DIMENSIONS);
-    printf("\nFinished in %d runs\n", loop_count);
+    printf("\nFinished in %zu runs\n", loop_count);
     free_array(INITIAL_ARRAY, DIMENSIONS);
 
     return 0;
@@ -73,29 +59,35 @@ void free_array(double **array, size_t dimensions) {
     free(array);
 }
 
-int average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION) {
-    int precision_flag = 0;
+size_t average_array(double **INITIAL_ARRAY, size_t DIMENSIONS, double PRECISION) {
+
+    bool precision_flag = false;
     int loop_count = 0;
     while (!precision_flag) {
         loop_count++;
 
-        precision_flag = 0;
+        precision_flag = true;
 
         for (size_t i = 1; i < DIMENSIONS - 1; i++) {
             for (size_t j = 1; j < DIMENSIONS - 1; j++) {
                 double previous_value = INITIAL_ARRAY[i][j];
                 average(&INITIAL_ARRAY[i][j], &INITIAL_ARRAY[i + 1][j], &INITIAL_ARRAY[i - 1][j],
                         &INITIAL_ARRAY[i][j + 1], &INITIAL_ARRAY[i][j - 1]);
-                precision_flag = in_precision(previous_value, INITIAL_ARRAY[i][j], PRECISION);
+
+                if (precision_flag == true)
+                    precision_flag = in_precision(precision_flag, previous_value, INITIAL_ARRAY[i][j], PRECISION);
+
             }
         }
     }
     return loop_count;
 }
 
-int in_precision(double previous_value, double current_value, double precision) {
-    if ((int) (fabs(previous_value / precision)) == (int) (fabs(current_value / precision))) return 1;
-    else return 0;
+bool in_precision(bool current_precision, double previous_value, double current_value, double precision) {
+    //TODO: Talk to robin about this.
+
+    if ((int) (previous_value / precision) == (int) (current_value / precision)) return current_precision;
+    else return false;
 }
 
 void average(double *answer, const double *up, const double *down, const double *right, const double *left) {
@@ -115,7 +107,7 @@ void print_2d_array(double **array, size_t dimensions) {
  * that's 5x5*/
 
 double **generate_non_random_array() {
-    double **array = generate_2d_array(5);
+    double **array = generate_2d_double_array(5);
     array[0][0] = 8.404724;
     array[0][1] = 7.569421;
     array[0][2] = 2.292463;
@@ -145,9 +137,9 @@ double **generate_non_random_array() {
 }
 
 
-double **generate_random_array(int DIMENSIONS) {
+double **generate_random_array(size_t DIMENSIONS) {
     srand(time(NULL));
-    double **array = generate_2d_array(DIMENSIONS);
+    double **array = generate_2d_double_array(DIMENSIONS);
     double random_value;
     for (int i = 0; i < DIMENSIONS; i++) {
         for (int j = 0; j < DIMENSIONS; j++) {
@@ -159,7 +151,7 @@ double **generate_random_array(int DIMENSIONS) {
 }
 
 
-double **generate_2d_array(int dimensions) {
+double **generate_2d_double_array(size_t dimensions) {
     double **array = malloc(sizeof(double *) * dimensions);
     for (size_t i = 0; i < dimensions; i++) { array[i] = malloc(sizeof(double) * dimensions); }
     return array;

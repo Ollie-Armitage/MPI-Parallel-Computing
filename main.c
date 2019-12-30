@@ -1,70 +1,139 @@
 #include "main.h"
 
 int main(int argc, char *argv[]) {
-    /* Argument setup. */
+    /* MPI setup. */
+    MPI_Init(&argc, &argv);
 
-    size_t DIMENSIONS = 0;
-    double PRECISION = 0;
-    bool d_test_flag = false;
-    bool p_test_flag = false;
+    /* Environment variable setup. */
+
+    /* Default environment variables initialized in case not input from command line arguments. */
+    int DIMENSIONS = 5;
+    double PRECISION = 0.01;
+
+    /* Command line flag checks initialized. */
+    bool d_test_flag = false, p_test_flag = false, v_test_flag = false;
+
+
+    /* MPI variable declared and bound through their appropriate functions for the rank of the process (my_rank) and
+     * the total number of processes (comm_size). */
+    int comm_size, my_rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+
+    /* Variables declared for the purposes of sharing and calculating the result from the root process. */
+    double *send_buffer;
+    int *send_counts = malloc(sizeof(int) * comm_size);
+    int *displacements = malloc(sizeof(int));
+
+
+    /* Variables declared for the purposes of receiving from the root process.*/
+    double *receive_buffer;
+    int receive_count;
+
+    int standard_amount_of_rows;
+    int remainder;
 
     int opt;
-    while ((opt = getopt(argc, argv, "d:p:")) != -1) {
+    while ((opt = getopt(argc, argv, "d:p:v")) != -1) {
         switch (opt) {
             case 'd':
-                DIMENSIONS = strtoul(optarg, NULL, 10);
+                DIMENSIONS = (int) strtol(optarg, NULL, 10);
                 d_test_flag = true;
                 break;
             case 'p':
                 PRECISION = strtod(optarg, NULL);
                 p_test_flag = true;
                 break;
+            case 'v':
+                v_test_flag = true;
+                break;
             default:
-                printf("Unrecognised Args. Please use the format %s -d [DIMENSIONS] -p [PRECISION]\n", argv[0]);
+                printf("Unrecognised Args. Please use the format %s -d [DIMENSIONS] -p [PRECISION] -v\n", argv[0]);
                 exit(0);
         }
     }
 
-
-    double **INITIAL_ARRAY;
-
-    if (!d_test_flag) {
-        DIMENSIONS = 5;
-        INITIAL_ARRAY = generate_non_random_array();
-    } else { INITIAL_ARRAY = generate_random_array(DIMENSIONS); }
-
-    printf("Initial Array: \n");
-    print_2d_array(INITIAL_ARRAY, DIMENSIONS);
-    printf("\n");
-
-    if (!p_test_flag) { PRECISION = 0.0001; }
-
-
     /* Argument setup ends. */
 
+    /* For the purposes of this coursework, 2d array is generated on the first process before data is passed to other
+     * processes. */
+    double **INITIAL_ARRAY;
+    if (my_rank == 0) {
+        if (!d_test_flag) {
+            INITIAL_ARRAY = generate_non_random_array();
+        } else { INITIAL_ARRAY = generate_random_array(DIMENSIONS); }
 
-    MPI_Init(&argc, &argv);
+        if (v_test_flag) {
+            printf("\n");
+            printf("Initial Array: \n");
+            print_2d_array(INITIAL_ARRAY, DIMENSIONS);
+            printf("\n");
+        }
 
-    /* Function averages array and returns the number of precision loops performed. */
-    size_t loop_count = average_array(INITIAL_ARRAY, DIMENSIONS, PRECISION);
+        /* From this point onwards is the parallelism of the program. */
 
-    print_2d_array(INITIAL_ARRAY, DIMENSIONS);
-    printf("\nFinished in %zu runs\n", loop_count);
-    free_array(INITIAL_ARRAY, DIMENSIONS);
+        /* In order to use the MPI_Scatterv function:
+         * - 2d double array must be converted into 1d for the send buffer */
+
+        send_buffer = malloc(sizeof(double) * DIMENSIONS * DIMENSIONS);
+
+        for (int i = 0; i < DIMENSIONS; i++) {
+            for (int j = 0; j < DIMENSIONS; j++) {
+                send_buffer[i * DIMENSIONS + j] = INITIAL_ARRAY[i][j];
+            }
+        }
+
+        if (v_test_flag) {
+            printf("\n");
+            printf("Array in Send Buffer (broken up every per value of dimension): \n");
+            for (int i = 0; i < DIMENSIONS; i++) {
+                for (int j = 0; j < DIMENSIONS; j++) {
+                    printf("%f\t", send_buffer[i * DIMENSIONS + j]);
+                }
+                printf("\n");
+            }
+            printf("\n");
+        }
+
+        /* - MPI_Scatterv must be supplied the number of elements in each send buffer, as Scatterv allows for a varying
+         * number of elements.*/
+        standard_amount_of_rows = DIMENSIONS / comm_size;
+        remainder = DIMENSIONS - (standard_amount_of_rows * comm_size);
+
+        if (remainder == 0) {
+            for (int i = 0; i < comm_size; i++) send_counts[i] = standard_amount_of_rows;
+        } else {
+            for (int i = 0; i < comm_size - 1; i++) send_counts[i] = standard_amount_of_rows;
+            send_counts[comm_size] = remainder;
+        }
+    } else{
+        standard_amount_of_rows = DIMENSIONS / comm_size;
+        remainder = DIMENSIONS - (standard_amount_of_rows * comm_size);
+    }
+
+    /* - MPI_Scatterv must be supplied a receive buffer for each process (including the root).*/
+
+    if (remainder == 0) receive_count = DIMENSIONS * standard_amount_of_rows;
+    else receive_count = DIMENSIONS * remainder;
+    receive_buffer = malloc(sizeof(double) * receive_count);
+
+
+    MPI_Scatterv(&send_buffer, send_counts, displacements, MPI_DOUBLE, &receive_buffer, receive_count, MPI_DOUBLE,
+                 my_rank, MPI_COMM_WORLD);
 
     MPI_Finalize();
 
     return 0;
 }
 
-void free_array(double **array, size_t dimensions) {
+void free_array(double **array, int dimensions) {
     for (size_t i = 0; i < dimensions; i++) {
         free(array[i]);
     }
     free(array);
 }
 
-size_t average_array(double **INITIAL_ARRAY, size_t DIMENSIONS, double PRECISION) {
+size_t average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION) {
     /* This is where the program needs to be parallelized. */
 
     bool precision_flag = false;
@@ -90,8 +159,6 @@ size_t average_array(double **INITIAL_ARRAY, size_t DIMENSIONS, double PRECISION
 }
 
 bool in_precision(bool current_precision, double previous_value, double current_value, double precision) {
-    //TODO: Talk to robin about this.
-
     if ((int) (previous_value / precision) == (int) (current_value / precision)) return current_precision;
     else return false;
 }
@@ -100,7 +167,7 @@ void average(double *answer, const double *up, const double *down, const double 
     *answer = (*up + *down + *right + *left) / 4;
 }
 
-void print_2d_array(double **array, size_t dimensions) {
+void print_2d_array(double **array, int dimensions) {
     for (size_t i = 0; i < dimensions; i++) {
         for (size_t j = 0; j < dimensions; j++) {
             printf("%f\t", array[i][j]);
@@ -143,7 +210,7 @@ double **generate_non_random_array() {
 }
 
 
-double **generate_random_array(size_t DIMENSIONS) {
+double **generate_random_array(int DIMENSIONS) {
     srand(time(NULL));
     double **array = generate_2d_double_array(DIMENSIONS);
     double random_value;
@@ -157,7 +224,7 @@ double **generate_random_array(size_t DIMENSIONS) {
 }
 
 
-double **generate_2d_double_array(size_t dimensions) {
+double **generate_2d_double_array(int dimensions) {
     double **array = malloc(sizeof(double *) * dimensions);
     for (size_t i = 0; i < dimensions; i++) { array[i] = malloc(sizeof(double) * dimensions); }
     return array;

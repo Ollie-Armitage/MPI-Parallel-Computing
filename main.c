@@ -23,15 +23,15 @@ int main(int argc, char *argv[]) {
     /* Variables declared for the purposes of sharing and calculating the result from the root process. */
     double *send_buffer;
     int *send_counts = malloc(sizeof(int) * comm_size);
-    int *displacements = malloc(sizeof(int));
+    int *displacements = malloc(sizeof(int) * comm_size);
+
 
 
     /* Variables declared for the purposes of receiving from the root process.*/
     double *receive_buffer;
     int receive_count;
 
-    int standard_amount_of_rows;
-    int remainder;
+
 
     int opt;
     while ((opt = getopt(argc, argv, "d:p:v")) != -1) {
@@ -52,6 +52,11 @@ int main(int argc, char *argv[]) {
                 exit(0);
         }
     }
+
+    /* Variables declared for the purposes of sending from the root process. */
+    int ROWS_PER_PROCESS = DIMENSIONS / comm_size;
+    int REMAINING_ROWS = DIMENSIONS % comm_size;
+
 
     /* Argument setup ends. */
 
@@ -97,29 +102,58 @@ int main(int argc, char *argv[]) {
 
         /* - MPI_Scatterv must be supplied the number of elements in each send buffer, as Scatterv allows for a varying
          * number of elements.*/
-        standard_amount_of_rows = DIMENSIONS / comm_size;
-        remainder = DIMENSIONS - (standard_amount_of_rows * comm_size);
+        /* - MPI_Scatterv must also be supplied with an array of displacements from the send buffer for each of the processes*/
 
-        if (remainder == 0) {
-            for (int i = 0; i < comm_size; i++) send_counts[i] = standard_amount_of_rows;
-        } else {
-            for (int i = 0; i < comm_size - 1; i++) send_counts[i] = standard_amount_of_rows;
-            send_counts[comm_size] = remainder;
+        if (my_rank == 0) {
+            printf("ROWS_PER_PROCESS: %d\n", ROWS_PER_PROCESS);
+            printf("REMAINING_ROWS: %d\n", REMAINING_ROWS);
         }
-    } else{
-        standard_amount_of_rows = DIMENSIONS / comm_size;
-        remainder = DIMENSIONS - (standard_amount_of_rows * comm_size);
+
+        if (REMAINING_ROWS == 0) {
+            for (int i = 0; i < comm_size; i++) {
+                send_counts[i] = ROWS_PER_PROCESS * DIMENSIONS;
+                displacements[i] = i * (int) sizeof(int) * DIMENSIONS;
+            }
+        } else {
+            for (int i = 0; i < comm_size - 1; i++) {
+                send_counts[i] = ROWS_PER_PROCESS * DIMENSIONS;
+                displacements[i] = i * (int) sizeof(int) * DIMENSIONS;
+            }
+            send_counts[comm_size - 1] = REMAINING_ROWS * DIMENSIONS;
+            displacements[comm_size - 1] = comm_size * (int) sizeof(int) * DIMENSIONS;
+        }
     }
 
     /* - MPI_Scatterv must be supplied a receive buffer for each process (including the root).*/
 
-    if (remainder == 0) receive_count = DIMENSIONS * standard_amount_of_rows;
-    else receive_count = DIMENSIONS * remainder;
+    if (REMAINING_ROWS == 0) receive_count = ROWS_PER_PROCESS * DIMENSIONS;
+    else receive_count = REMAINING_ROWS * DIMENSIONS;
     receive_buffer = malloc(sizeof(double) * receive_count);
 
 
-    MPI_Scatterv(&send_buffer, send_counts, displacements, MPI_DOUBLE, &receive_buffer, receive_count, MPI_DOUBLE,
-                 my_rank, MPI_COMM_WORLD);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+
+    if(my_rank == 0){
+        for(int i = 0; i < comm_size; i++){
+            printf("Thread: %d\tSend Count: %d\t Recieve Count: %d \n", i, send_counts[my_rank], receive_count);
+        }
+    }
+
+
+
+    MPI_Scatterv(
+            &send_buffer,
+            send_counts,
+            displacements,
+            MPI_DOUBLE,
+            &receive_buffer,
+            receive_count,
+            MPI_DOUBLE,
+            0,
+            MPI_COMM_WORLD
+    );
 
     MPI_Finalize();
 

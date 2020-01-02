@@ -10,7 +10,7 @@ LINK_LIBRARIES(${MPI_CXX_LIBRARIES})
 
 SET(CMAKE_C_COMPILER mpicc)
 SET(CMAKE_CXX_COMPILER mpicxx)
-SET(SOURCE_FILES main.c)
+SET(SOURCE_FILES main.c main.c)
 SET(CMAKE_CXX_FLAGS -Wall -Wextra -Wconversion)
 
 add_executable(PC2 ${SOURCE_FILES})

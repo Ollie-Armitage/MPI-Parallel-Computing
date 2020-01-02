@@ -32,7 +32,6 @@ int main(int argc, char *argv[]) {
     int receive_count;
 
 
-
     int opt;
     while ((opt = getopt(argc, argv, "d:p:v")) != -1) {
         switch (opt) {
@@ -104,13 +103,8 @@ int main(int argc, char *argv[]) {
          * number of elements.*/
         /* - MPI_Scatterv must also be supplied with an array of displacements from the send buffer for each of the processes*/
 
-        if (my_rank == 0) {
-            printf("ROWS_PER_PROCESS: %d\n", ROWS_PER_PROCESS);
-            printf("REMAINING_ROWS: %d\n", REMAINING_ROWS);
-        }
-
         if (REMAINING_ROWS == 0) {
-            for (int i = 0; i < comm_size; i++) {
+            for (int i = 0; i < DIMENSIONS; i++) {
                 send_counts[i] = ROWS_PER_PROCESS * DIMENSIONS;
                 displacements[i] = i * (int) sizeof(int) * DIMENSIONS;
             }
@@ -131,17 +125,7 @@ int main(int argc, char *argv[]) {
     receive_buffer = malloc(sizeof(double) * receive_count);
 
 
-
     MPI_Barrier(MPI_COMM_WORLD);
-
-
-    if(my_rank == 0){
-        for(int i = 0; i < comm_size; i++){
-            printf("Thread: %d\tSend Count: %d\t Recieve Count: %d \n", i, send_counts[my_rank], receive_count);
-        }
-    }
-
-
 
     MPI_Scatterv(
             &send_buffer,
@@ -153,7 +137,18 @@ int main(int argc, char *argv[]) {
             MPI_DOUBLE,
             0,
             MPI_COMM_WORLD
+
     );
+
+    if (v_test_flag && my_rank == 0) {
+        printf("Array on process %d\n", my_rank);
+        for (int i = 0; i < receive_count; i++) {
+            printf("%f\t", receive_buffer[i]);
+        }
+        printf("\n");
+    }
+
+
 
     MPI_Finalize();
 
@@ -262,4 +257,3 @@ double **generate_2d_double_array(int dimensions) {
     double **array = malloc(sizeof(double *) * dimensions);
     for (size_t i = 0; i < dimensions; i++) { array[i] = malloc(sizeof(double) * dimensions); }
     return array;
-}

@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# account type
+#SBATCH --account=cm30225
+#SBATCH --partition=teaching
+
+#SBATCH --job-name=ora24-job
+#SBATCH --output=ora24-job.out
+#SBATCH --error=ora24-job.err
+
+# Number of Nodes
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=5
+
+# Max time
+#SBATCH --time=00:04:00
+
+# Mail
+#SBATCH --mail-type=END
+
+# Mail Address
+#SBATCH --mail-user=ora24@bath.ac.uk
+
+# load MPI
+module load intel/mpi
+
+# Application
+mpirun -np $SLURM_NTASKS ./main -p 0.01 -d 5 -v
+

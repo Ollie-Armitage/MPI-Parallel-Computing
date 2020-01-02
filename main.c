@@ -257,3 +257,4 @@ double **generate_2d_double_array(int dimensions) {
     double **array = malloc(sizeof(double *) * dimensions);
     for (size_t i = 0; i < dimensions; i++) { array[i] = malloc(sizeof(double) * dimensions); }
     return array;
+}

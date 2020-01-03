@@ -23,3 +23,7 @@ bool in_precision(bool current_precision, double previous_value, double current_
 void average(double *answer, const double *up, const double *down, const double *right, const double *left);
 
 void free_array(double **array, int dimensions);
+
+double *matrix_to_array(double **array, int dimensions);
+
+void print_1D_array(double *array, int dimensions);

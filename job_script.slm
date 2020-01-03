@@ -9,7 +9,7 @@
 #SBATCH --error=ora24-job.err
 
 # Number of Nodes
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=5
 
 # Max time
@@ -25,5 +25,5 @@
 module load intel/mpi
 
 # Application
-mpirun -np $SLURM_NTASKS ./main -p 0.01 -d 5 -v
+mpirun -np $SLURM_NTASKS ./main -v
 

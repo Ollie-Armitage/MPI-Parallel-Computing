@@ -1,36 +1,16 @@
 #include "main.h"
 
 int main(int argc, char *argv[]) {
-    /* MPI setup. */
-    MPI_Init(&argc, &argv);
-
-    /* Environment variable setup. */
 
     /* Default environment variables initialized in case not input from command line arguments. */
     int DIMENSIONS = 5;
     double PRECISION = 0.01;
+    int *send_counts;
+    int *displacements;
+    int NUMBER_OF_PROCESSES, my_rank;
 
     /* Command line flag checks initialized. */
     bool d_test_flag = false, p_test_flag = false, v_test_flag = false;
-
-
-    /* MPI variable declared and bound through their appropriate functions for the rank of the process (my_rank) and
-     * the total number of processes (comm_size). */
-    int comm_size, my_rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-
-    /* Variables declared for the purposes of sharing and calculating the result from the root process. */
-    double *send_buffer;
-    int *send_counts = malloc(sizeof(int) * comm_size);
-    int *displacements = malloc(sizeof(int) * comm_size);
-
-
-
-    /* Variables declared for the purposes of receiving from the root process.*/
-    double *receive_buffer;
-    int receive_count;
-
 
     int opt;
     while ((opt = getopt(argc, argv, "d:p:v")) != -1) {
@@ -52,97 +32,88 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* Variables declared for the purposes of sending from the root process. */
-    int ROWS_PER_PROCESS = DIMENSIONS / comm_size;
-    int REMAINING_ROWS = DIMENSIONS % comm_size;
+    /* MPI setup. */
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &NUMBER_OF_PROCESSES);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 
+
+    /* Variables declared for the purposes of sharing and calculating the result from the root process. */
+    double *send_buffer = NULL;
+    send_counts = malloc(sizeof(int) * NUMBER_OF_PROCESSES);
+    displacements = malloc(sizeof(int) * NUMBER_OF_PROCESSES);
+
+    /* Variables declared for the purposes of sending from the root process. */
+    int ROWS_PER_PROCESS = DIMENSIONS / NUMBER_OF_PROCESSES;
+    int REMAINING_ROWS = DIMENSIONS % NUMBER_OF_PROCESSES;
 
     /* Argument setup ends. */
 
-    /* For the purposes of this coursework, 2d array is generated on the first process before data is passed to other
-     * processes. */
-    double **INITIAL_ARRAY;
     if (my_rank == 0) {
-        if (!d_test_flag) {
-            INITIAL_ARRAY = generate_non_random_array();
-        } else { INITIAL_ARRAY = generate_random_array(DIMENSIONS); }
+        /* For the purposes of this coursework, 2d array is generated on the first process before data is passed to other
+        * processes. If not supplied a dimension, non-random 5x5 is generated. If supplied a dimension, random array
+         * of that dimension is generated.*/
 
-        if (v_test_flag) {
-            printf("\n");
-            printf("Initial Array: \n");
-            print_2d_array(INITIAL_ARRAY, DIMENSIONS);
-            printf("\n");
-        }
+        double **INITIAL_ARRAY;
+        if (!d_test_flag) INITIAL_ARRAY = generate_non_random_array();
+        else INITIAL_ARRAY = generate_random_array(DIMENSIONS);
 
         /* From this point onwards is the parallelism of the program. */
 
         /* In order to use the MPI_Scatterv function:
-         * - 2d double array must be converted into 1d for the send buffer */
+         * - 2d double array must be converted into 1d for the send buffer. This is only relevant on the root process*/
 
-        send_buffer = malloc(sizeof(double) * DIMENSIONS * DIMENSIONS);
-
-        for (int i = 0; i < DIMENSIONS; i++) {
-            for (int j = 0; j < DIMENSIONS; j++) {
-                send_buffer[i * DIMENSIONS + j] = INITIAL_ARRAY[i][j];
-            }
-        }
-
+        send_buffer = matrix_to_array(INITIAL_ARRAY, DIMENSIONS);
         if (v_test_flag) {
-            printf("\n");
-            printf("Array in Send Buffer (broken up every per value of dimension): \n");
-            for (int i = 0; i < DIMENSIONS; i++) {
-                for (int j = 0; j < DIMENSIONS; j++) {
-                    printf("%f\t", send_buffer[i * DIMENSIONS + j]);
-                }
-                printf("\n");
-            }
-            printf("\n");
-        }
-
-        /* - MPI_Scatterv must be supplied the number of elements in each send buffer, as Scatterv allows for a varying
-         * number of elements.*/
-        /* - MPI_Scatterv must also be supplied with an array of displacements from the send buffer for each of the processes*/
-
-        if (REMAINING_ROWS == 0) {
-            for (int i = 0; i < DIMENSIONS; i++) {
-                send_counts[i] = ROWS_PER_PROCESS * DIMENSIONS;
-                displacements[i] = i * (int) sizeof(int) * DIMENSIONS;
-            }
-        } else {
-            for (int i = 0; i < comm_size - 1; i++) {
-                send_counts[i] = ROWS_PER_PROCESS * DIMENSIONS;
-                displacements[i] = i * (int) sizeof(int) * DIMENSIONS;
-            }
-            send_counts[comm_size - 1] = REMAINING_ROWS * DIMENSIONS;
-            displacements[comm_size - 1] = comm_size * (int) sizeof(int) * DIMENSIONS;
+            printf("Split up array by dimensions. (Dimensions supplied: %d)\n", DIMENSIONS);
+            print_1D_array(send_buffer, DIMENSIONS);
         }
     }
 
+    /* - MPI_Scatterv must be supplied the number of elements to send to each process, as Scatterv allows for a varying
+     * number of elements.*/
+    /* - MPI_Scatterv must also be supplied with an array of displacements from the start of the send buffer for each
+     * of the processes*/
+
+
+    int PROCESS_ELEMENTS;
+    int DISPLACEMENT = 0;
+
+    for (int i = 0; i < NUMBER_OF_PROCESSES; i++) {
+        if (REMAINING_ROWS != 0) {
+            PROCESS_ELEMENTS = DIMENSIONS * (ROWS_PER_PROCESS + 1);
+            REMAINING_ROWS--;
+        } else PROCESS_ELEMENTS = DIMENSIONS * ROWS_PER_PROCESS;
+        send_counts[i] = PROCESS_ELEMENTS;
+        displacements[i] = DISPLACEMENT;
+        DISPLACEMENT += PROCESS_ELEMENTS;
+    }
+
+
     /* - MPI_Scatterv must be supplied a receive buffer for each process (including the root).*/
 
-    if (REMAINING_ROWS == 0) receive_count = ROWS_PER_PROCESS * DIMENSIONS;
-    else receive_count = REMAINING_ROWS * DIMENSIONS;
-    receive_buffer = malloc(sizeof(double) * receive_count);
+    double *receive_buffer = malloc(sizeof(double) * send_counts[my_rank]);
 
-
-    MPI_Barrier(MPI_COMM_WORLD);
 
     MPI_Scatterv(
-            &send_buffer,
+            &send_buffer[0],
             send_counts,
             displacements,
             MPI_DOUBLE,
-            &receive_buffer,
-            receive_count,
+            &receive_buffer[0],
+            send_counts[my_rank],
             MPI_DOUBLE,
             0,
             MPI_COMM_WORLD
-
     );
 
-    if (v_test_flag && my_rank == 0) {
-        printf("Array on process %d\n", my_rank);
-        for (int i = 0; i < receive_count; i++) {
+
+
+    /* Print received buffers on all processes. */
+
+    if(v_test_flag){
+        printf("%d: ", my_rank);
+        for(int i = 0; i < send_counts[my_rank]; i++){
             printf("%f\t", receive_buffer[i]);
         }
         printf("\n");
@@ -150,9 +121,33 @@ int main(int argc, char *argv[]) {
 
 
 
+    if (my_rank == 0) free(send_buffer);
+    free(displacements);
+    free(receive_buffer);
+
     MPI_Finalize();
 
     return 0;
+}
+
+void print_1D_array(double *array, int dimensions) {
+    for (int i = 0; i < dimensions; i++) {
+        for (int j = 0; j < dimensions; j++) {
+            printf("%f\t", array[i * dimensions + j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+}
+
+double *matrix_to_array(double **array, int dimensions) {
+    double *send_buffer = malloc((sizeof(double) * dimensions * dimensions) + 1);
+    for (int i = 0; i < dimensions; i++) {
+        for (int j = 0; j < dimensions; j++) {
+            send_buffer[i * dimensions + j] = array[i][j];
+        }
+    }
+    return send_buffer;
 }
 
 void free_array(double **array, int dimensions) {

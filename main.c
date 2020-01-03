@@ -1,5 +1,7 @@
 #include "main.h"
 
+double **array_to_matrix(double *array, int dimensions);
+
 int main(int argc, char *argv[]) {
 
     /* Default environment variables initialized in case not input from command line arguments. */
@@ -78,7 +80,6 @@ int main(int argc, char *argv[]) {
 
     int PROCESS_ELEMENTS;
     int DISPLACEMENT = 0;
-
     for (int i = 0; i < NUMBER_OF_PROCESSES; i++) {
         if (REMAINING_ROWS != 0) {
             PROCESS_ELEMENTS = DIMENSIONS * (ROWS_PER_PROCESS + 1);
@@ -89,11 +90,9 @@ int main(int argc, char *argv[]) {
         DISPLACEMENT += PROCESS_ELEMENTS;
     }
 
-
     /* - MPI_Scatterv must be supplied a receive buffer for each process (including the root).*/
 
     double *receive_buffer = malloc(sizeof(double) * send_counts[my_rank]);
-
 
     MPI_Scatterv(
             &send_buffer[0],
@@ -108,17 +107,63 @@ int main(int argc, char *argv[]) {
     );
 
 
-
     /* Print received buffers on all processes. */
 
-    if(v_test_flag){
-        printf("%d: ", my_rank);
-        for(int i = 0; i < send_counts[my_rank]; i++){
+    if (v_test_flag) {
+        printf("Receive buffer of process %d: ", my_rank);
+        for (int i = 0; i < send_counts[my_rank]; i++) {
             printf("%f\t", receive_buffer[i]);
         }
         printf("\n");
     }
 
+
+    int ROWS_IN_PROCESS = send_counts[my_rank] / DIMENSIONS;
+
+    double **processor_array = malloc(sizeof(double) * ROWS_IN_PROCESS);
+
+    for (int i = 0; i < ROWS_IN_PROCESS; i++) {
+        processor_array[i] = malloc(sizeof(double) * DIMENSIONS);
+        memcpy(processor_array[i], &receive_buffer[0] + i * DIMENSIONS, sizeof(double) * DIMENSIONS);
+    }
+
+    bool precision_flag = false;
+    int loop_count = 0;
+    while (!precision_flag) {
+        loop_count++;
+        precision_flag = true;
+
+        /* Need to send top and bottom rows, and  */
+
+        double top_buffer[DIMENSIONS];
+        double bottom_buffer[DIMENSIONS];
+
+        memcpy(top_buffer, processor_array[0], sizeof(double)*DIMENSIONS);
+        memcpy(bottom_buffer, processor_array[ROWS_IN_PROCESS - 1], sizeof(double)*DIMENSIONS);
+
+
+        if (my_rank != 0) MPI_Send(&top_buffer, DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
+        if (my_rank != NUMBER_OF_PROCESSES - 1)
+            MPI_Send(&bottom_buffer, DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
+
+
+
+        for (size_t i = 1; i < DIMENSIONS - 1; i++) {
+            for (size_t j = 1; j < DIMENSIONS - 1; j++) {
+                double previous_value = processor_array[i][j];
+                average(&processor_array[i][j], &processor_array[i + 1][j], &processor_array[i - 1][j],
+                        &processor_array[i][j + 1], &processor_array[i][j - 1]);
+
+                if (precision_flag == true)
+                    precision_flag = in_precision(precision_flag, previous_value, processor_array[i][j], PRECISION);
+
+            }
+        }
+    }
+
+    printf("Array rank: %d\n", my_rank);
+    print_2d_array(processor_array, ROWS_IN_PROCESS, DIMENSIONS);
+    printf("\n");
 
 
     if (my_rank == 0) free(send_buffer);
@@ -128,6 +173,15 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
 
     return 0;
+}
+
+double **array_to_matrix(double *array, int dimensions) {
+    double **matrix = malloc(sizeof(double) * dimensions);
+
+    for (int i = 0; i < dimensions; i++) {
+        matrix[i] = &array[i * dimensions];
+    }
+    return matrix;
 }
 
 void print_1D_array(double *array, int dimensions) {
@@ -164,7 +218,6 @@ size_t average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION) {
     int loop_count = 0;
     while (!precision_flag) {
         loop_count++;
-
         precision_flag = true;
 
         for (size_t i = 1; i < DIMENSIONS - 1; i++) {
@@ -191,9 +244,9 @@ void average(double *answer, const double *up, const double *down, const double 
     *answer = (*up + *down + *right + *left) / 4;
 }
 
-void print_2d_array(double **array, int dimensions) {
-    for (size_t i = 0; i < dimensions; i++) {
-        for (size_t j = 0; j < dimensions; j++) {
+void print_2d_array(double **array, int x_dimensions, int y_dimensions) {
+    for (size_t i = 0; i < x_dimensions; i++) {
+        for (size_t j = 0; j < y_dimensions; j++) {
             printf("%f\t", array[i][j]);
         }
         printf("\n");
@@ -204,7 +257,7 @@ void print_2d_array(double **array, int dimensions) {
  * that's 5x5*/
 
 double **generate_non_random_array() {
-    double **array = generate_2d_double_array(5);
+    double **array = generate_2d_double_array(5, 5);
     array[0][0] = 8.404724;
     array[0][1] = 7.569421;
     array[0][2] = 2.292463;
@@ -236,7 +289,7 @@ double **generate_non_random_array() {
 
 double **generate_random_array(int DIMENSIONS) {
     srand(time(NULL));
-    double **array = generate_2d_double_array(DIMENSIONS);
+    double **array = generate_2d_double_array(DIMENSIONS, DIMENSIONS);
     double random_value;
     for (int i = 0; i < DIMENSIONS; i++) {
         for (int j = 0; j < DIMENSIONS; j++) {
@@ -248,8 +301,8 @@ double **generate_random_array(int DIMENSIONS) {
 }
 
 
-double **generate_2d_double_array(int dimensions) {
-    double **array = malloc(sizeof(double *) * dimensions);
-    for (size_t i = 0; i < dimensions; i++) { array[i] = malloc(sizeof(double) * dimensions); }
+double **generate_2d_double_array(int x_dimension, int y_dimension) {
+    double **array = malloc(sizeof(double *) * x_dimension);
+    for (size_t i = 0; i < x_dimension; i++) { array[i] = malloc(sizeof(double) * x_dimension); }
     return array;
 }

@@ -8,7 +8,7 @@
 #include <mpi.h>
 #include <stdbool.h>
 
-double **generate_2d_double_array(int dimensions);
+double **generate_2d_double_array(int x_dimension, int y_dimension);
 
 double **generate_non_random_array();
 
@@ -16,7 +16,7 @@ double **generate_random_array(int DIMENSIONS);
 
 size_t average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION);
 
-void print_2d_array(double **array, int dimensions);
+void print_2d_array(double **array, int x_dimensions, int y_dimensions);
 
 bool in_precision(bool current_precision, double previous_value, double current_value, double precision);
 

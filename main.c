@@ -34,6 +34,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+
     /* MPI setup. */
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &NUMBER_OF_PROCESSES);
@@ -71,6 +72,7 @@ int main(int argc, char *argv[]) {
             print_1D_array(send_buffer, DIMENSIONS);
         }
     }
+
 
     /* - MPI_Scatterv must be supplied the number of elements to send to each process, as Scatterv allows for a varying
      * number of elements.*/
@@ -111,44 +113,32 @@ int main(int argc, char *argv[]) {
 
     if (v_test_flag) {
         printf("Receive buffer of process %d: ", my_rank);
-        for (int i = 0; i < send_counts[my_rank]; i++) {
-            printf("%f\t", receive_buffer[i]);
-        }
+        for (int i = 0; i < send_counts[my_rank]; i++) printf("%f\t", receive_buffer[i]);
         printf("\n");
     }
 
 
     int ROWS_IN_PROCESS = send_counts[my_rank] / DIMENSIONS;
 
-    double **processor_array = malloc(sizeof(double) * ROWS_IN_PROCESS);
+    double **processor_array = calloc(ROWS_IN_PROCESS, sizeof(double));
 
     for (int i = 0; i < ROWS_IN_PROCESS; i++) {
-        processor_array[i] = malloc(sizeof(double) * DIMENSIONS);
-        memcpy(processor_array[i], &receive_buffer[0] + i * DIMENSIONS, sizeof(double) * DIMENSIONS);
+        processor_array[i] = calloc(DIMENSIONS, sizeof(double));
+        memcpy(processor_array[i], &receive_buffer[0] + (i * DIMENSIONS), sizeof(double) * DIMENSIONS);
     }
 
+
+
+    double *top_row = malloc(sizeof(double)*DIMENSIONS);
+    double *bottom_row = malloc(sizeof(double)*DIMENSIONS);
     bool precision_flag = false;
     int loop_count = 0;
+
     while (!precision_flag) {
+
         loop_count++;
         precision_flag = true;
-
-        /* Need to send top and bottom rows, and  */
-
-        double top_buffer[DIMENSIONS];
-        double bottom_buffer[DIMENSIONS];
-
-        memcpy(top_buffer, processor_array[0], sizeof(double)*DIMENSIONS);
-        memcpy(bottom_buffer, processor_array[ROWS_IN_PROCESS - 1], sizeof(double)*DIMENSIONS);
-
-
-        if (my_rank != 0) MPI_Send(&top_buffer, DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
-        if (my_rank != NUMBER_OF_PROCESSES - 1)
-            MPI_Send(&bottom_buffer, DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
-
-
-
-        for (size_t i = 1; i < DIMENSIONS - 1; i++) {
+        for (size_t i = 1; i < ROWS_IN_PROCESS - 1; i++) {
             for (size_t j = 1; j < DIMENSIONS - 1; j++) {
                 double previous_value = processor_array[i][j];
                 average(&processor_array[i][j], &processor_array[i + 1][j], &processor_array[i - 1][j],

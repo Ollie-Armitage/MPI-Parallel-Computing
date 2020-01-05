@@ -10,7 +10,7 @@
 
 # Number of Nodes
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=5
+#SBATCH --ntasks-per-node=1
 
 # Max time
 #SBATCH --time=00:04:00

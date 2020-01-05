@@ -10,13 +10,13 @@
 
 double **generate_2d_double_array(int x_dimension, int y_dimension);
 
-double **generate_non_random_array();
+void generate_non_random_array(int DIMENSIONS, double array[][DIMENSIONS]);
 
-double **generate_random_array(int DIMENSIONS);
+void generate_random_array(int DIMENSIONS, double array[][DIMENSIONS]);
 
 size_t average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION);
 
-void print_2d_array(double **array, int x_dimensions, int y_dimensions);
+void print_2d_array(int rows, int columns, double array[rows][columns]);
 
 bool in_precision(bool current_precision, double previous_value, double current_value, double precision);
 
@@ -26,4 +26,4 @@ void free_array(double **array, int dimensions);
 
 double *matrix_to_array(double **array, int dimensions);
 
-void print_1D_array(double *array, int dimensions);
+void print_1D_array(double *array, int row, int column);

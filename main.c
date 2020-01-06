@@ -139,7 +139,7 @@ int main(int argc, char *argv[]) {
 
                 MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
-                MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
+                MPI_Send(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
 
             } else if (my_rank == NUMBER_OF_PROCESSES - 1) {
                 memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer,
@@ -147,20 +147,20 @@ int main(int argc, char *argv[]) {
 
                 // If my_rank - 1 has not exited.
 
-                MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
+                MPI_Send(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
                 MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
             } else {
 
                 // If my_rank - 1 has not exited.
 
-                MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
+                MPI_Send(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
                 MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
 
                 // If my_rank + 1 has not exited.
 
-                MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
+                MPI_Send(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
                 MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
 
@@ -264,6 +264,11 @@ setup_args(int *dimensions, double *precision, int *number_of_processes, int *pr
 
     MPI_Comm_size(MPI_COMM_WORLD, number_of_processes);
     MPI_Comm_rank(MPI_COMM_WORLD, process_rank);
+
+
+    if(*number_of_processes > *dimensions - 2) *number_of_processes = *dimensions - 2;
+    if(*process_rank > *number_of_processes - 1) MPI_Finalize();
+
 
 }
 

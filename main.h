@@ -14,11 +14,11 @@ void generate_non_random_array(int DIMENSIONS, double array[][DIMENSIONS]);
 
 void generate_random_array(int DIMENSIONS, double array[][DIMENSIONS]);
 
-size_t average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION);
+size_t average_array(int rows, int columns, double INITIAL_ARRAY[rows][columns], double PRECISION, bool *precision_flag);
 
 void print_2d_array(int rows, int columns, double array[rows][columns]);
 
-bool in_precision(bool current_precision, double previous_value, double current_value, double precision);
+bool in_precision(double previous_value, double current_value, double precision);
 
 void average(double *answer, const double *up, const double *down, const double *right, const double *left);
 

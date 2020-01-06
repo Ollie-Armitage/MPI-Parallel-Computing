@@ -10,7 +10,7 @@
 
 # Number of Nodes
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=5
 
 # Max time
 #SBATCH --time=00:04:00
@@ -25,5 +25,5 @@
 module load intel/mpi
 
 # Application
-mpirun -np $SLURM_NTASKS ./main -v
+mpirun -np $SLURM_NTASKS ./main -v -d 100
 

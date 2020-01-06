@@ -1,3 +1,4 @@
+#include <zconf.h>
 #include "main.h"
 
 double **array_to_matrix(double *array, int dimensions);
@@ -40,6 +41,7 @@ int main(int argc, char *argv[]) {
     /* Argument setup ends. */
 
     if (my_rank == 0) {
+        send_buffer = malloc(sizeof(double) * DIMENSIONS * DIMENSIONS);
         /* For the purposes of this coursework, 2d array is generated on the first process before data is passed to other
         * processes. If not supplied a dimension, non-random 5x5 is generated. If supplied a dimension, random array
          * of that dimension is generated.*/
@@ -52,7 +54,6 @@ int main(int argc, char *argv[]) {
         /* In order to use the MPI_Scatterv function:
          * - 2d double array must be converted into 1d for the send buffer. This is only relevant on the root process*/
 
-        send_buffer = malloc(sizeof(double) * INNER_DIMENSIONS * DIMENSIONS);
         memcpy(top_buffer, INITIAL_ARRAY[0], sizeof(double) * DIMENSIONS);
 
 
@@ -63,7 +64,9 @@ int main(int argc, char *argv[]) {
         if (NUMBER_OF_PROCESSES > 1)
             MPI_Ssend(INITIAL_ARRAY[DIMENSIONS - 1], DIMENSIONS, MPI_DOUBLE, NUMBER_OF_PROCESSES - 1, 0,
                       MPI_COMM_WORLD);
-        else memcpy(bottom_buffer, INITIAL_ARRAY[DIMENSIONS - 1], sizeof(double) * DIMENSIONS);
+        memcpy(bottom_buffer, INITIAL_ARRAY[DIMENSIONS - 1], sizeof(double) * DIMENSIONS);
+
+        for (int i = 0; i < DIMENSIONS; i++) printf("%f\t", INITIAL_ARRAY[DIMENSIONS - 1][i]);
 
         if (v_test_flag) {
             printf("Split up array by dimensions. (Dimensions supplied: %d)\n", DIMENSIONS);
@@ -82,8 +85,8 @@ int main(int argc, char *argv[]) {
     set_scatterv_values(DIMENSIONS, INNER_DIMENSIONS, NUMBER_OF_PROCESSES, send_counts, displacements);
 
     /* - MPI_Scatterv must be supplied a receive buffer for each process (including the root).*/
-
     double receive_buffer[send_counts[my_rank]];
+
 
     MPI_Scatterv(
             send_buffer,
@@ -102,6 +105,8 @@ int main(int argc, char *argv[]) {
 
     double processor_array[PROCESSOR_ROWS][PROCESSOR_COLUMNS];
 
+    bool IN_PRECISION_FLAG = false;
+
     if (NUMBER_OF_PROCESSES == 1) {
         memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS);
         memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer, sizeof(double) * DIMENSIONS);
@@ -111,69 +116,104 @@ int main(int argc, char *argv[]) {
     } else {
         for (int i = 1; i < PROCESSOR_ROWS - 1; i++)
             memcpy(processor_array[i], receive_buffer + ((i - 1) * DIMENSIONS), sizeof(double) * DIMENSIONS);
+    }
 
-        if (my_rank == 0) {
-            memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS);
-            MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
-                     MPI_STATUS_IGNORE);
-            MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
-        } else if (my_rank == NUMBER_OF_PROCESSES - 1) {
-            memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer, sizeof(double) * DIMENSIONS);
-            MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
-            MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
-                     MPI_STATUS_IGNORE);
-        } else {
-            printf("%d\n", my_rank - 1);
-            MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
-            MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
-                     MPI_STATUS_IGNORE);
-            MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
-            MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
-                     MPI_STATUS_IGNORE);
+
+    MPI_Request request;
+
+    // While ANY are not in precision.
+
+    while (!IN_PRECISION_FLAG) {
+        IN_PRECISION_FLAG = true;
+        //sleep(1);
+
+        print_2d_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array);
+        printf("\n");
+
+
+        if (NUMBER_OF_PROCESSES > 1) {
+            if (my_rank == 0) {
+                memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS); // Necessary? Don't think so
+
+                // If my_rank + 1 has not exited.
+
+                MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
+                         MPI_STATUS_IGNORE);
+                MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
+
+            } else if (my_rank == NUMBER_OF_PROCESSES - 1) {
+                memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer,
+                       sizeof(double) * DIMENSIONS); // Don't think it's necessary
+
+                // If my_rank - 1 has not exited.
+
+                MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
+                MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
+                         MPI_STATUS_IGNORE);
+            } else {
+
+                // If my_rank - 1 has not exited.
+
+                MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
+                MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
+                         MPI_STATUS_IGNORE);
+
+                // If my_rank + 1 has not exited.
+
+                MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
+                MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
+                         MPI_STATUS_IGNORE);
+
+            }
+        }
+
+
+        for (size_t i = 1; i < PROCESSOR_ROWS - 1; i++) {
+            for (size_t j = 1; j < PROCESSOR_COLUMNS - 1; j++) {
+                double previous_value = processor_array[i][j];
+                average(&processor_array[i][j], &processor_array[i + 1][j], &processor_array[i - 1][j],
+                        &processor_array[i][j + 1], &processor_array[i][j - 1]);
+
+                if (IN_PRECISION_FLAG == true)
+                    IN_PRECISION_FLAG = in_precision(previous_value, processor_array[i][j], PRECISION);
+
+            }
+        }
+
+        // Send precision to rank 0
+        // receive precision from rank 0
+
+
+
+    }
+
+
+    for (int i = 0; i < PROCESSOR_ROWS - 2; i++) {
+        memcpy(receive_buffer + (i * DIMENSIONS), processor_array[i + 1], sizeof(double) * DIMENSIONS);
+    }
+
+
+    MPI_Gatherv(receive_buffer, send_counts[my_rank], MPI_DOUBLE, send_buffer + DIMENSIONS, send_counts,
+                displacements, MPI_DOUBLE,
+                0, MPI_COMM_WORLD);
+
+
+    if (my_rank == 0) {
+
+        memcpy(send_buffer, top_buffer, sizeof(double) * DIMENSIONS);
+        memcpy(send_buffer + (DIMENSIONS * (DIMENSIONS - 1)), bottom_buffer, sizeof(double) * DIMENSIONS);
+
+        if (v_test_flag) {
+            for (int i = 0; i < DIMENSIONS; i++) {
+                for (int j = 0; j < DIMENSIONS; j++) {
+                    printf("%f\t", send_buffer[(i * DIMENSIONS) + j]);
+                }
+                printf("\n");
+            }
+
         }
     }
 
-
-
-    printf("%d for rank: %d\n", send_counts[my_rank] / DIMENSIONS, my_rank);
-
-    /*for (int i = 0; i < send_counts[my_rank] / DIMENSIONS; i++)
-        memcpy(processor_array[i + 1], &receive_buffer[(i) * DIMENSIONS], sizeof(double) * DIMENSIONS);
-
-    // TODO: For Rank 0 only. For the top rows of each processor, for the bottom too.
-    if (my_rank == NUMBER_OF_PROCESSES - 1)
-        memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer, sizeof(double) * DIMENSIONS);
-
-    if (my_rank == 0) {
-        memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS);
-        MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
-                 MPI_STATUS_IGNORE);
-    } else {
-        MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    }
-
-    if (my_rank + 1 < NUMBER_OF_PROCESSES)
-        MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
-
-    if (my_rank > 0) {
-        MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
-    }*/
-
-
-
-    //printf("Array: %d\n", my_rank);
-    print_2d_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array);
-    printf("\n");
-    //printf("---\n");
-
-    if (v_test_flag) {
-        /* Print received buffers on all processes. */
-        //printf("Receive buffer of process %d: ", my_rank);
-        //for (int i = 0; i < send_counts[my_rank]; i++) printf("%f\t", receive_buffer[i]);
-        //printf("\n");
-    }
-
-    if (my_rank == 0) free(send_buffer);
 
     MPI_Finalize();
 
@@ -216,7 +256,8 @@ setup_args(int *dimensions, double *precision, int *number_of_processes, int *pr
                 *v_test_flag = true;
                 break;
             default:
-                printf("Unrecognised Args. Please use the format %s -d [DIMENSIONS] -p [PRECISION] -v\n", *argv[0]);
+                printf("Unrecognised Args. Please use the format %s -d [DIMENSIONS] -p [PRECISION] -v [VERBOSITY]\n",
+                       *argv[0]);
                 exit(0);
         }
     }
@@ -245,16 +286,6 @@ void print_1D_array(double *array, int row, int column) {
     printf("\n");
 }
 
-double *matrix_to_array(double **array, int dimensions) {
-    double *send_buffer = malloc((sizeof(double) * dimensions * dimensions) + 1);
-    for (int i = 0; i < dimensions; i++) {
-        for (int j = 0; j < dimensions; j++) {
-            send_buffer[i * dimensions + j] = array[i][j];
-        }
-    }
-    return send_buffer;
-}
-
 void free_array(double **array, int dimensions) {
     for (size_t i = 0; i < dimensions; i++) {
         free(array[i]);
@@ -262,32 +293,30 @@ void free_array(double **array, int dimensions) {
     free(array);
 }
 
-size_t average_array(double **INITIAL_ARRAY, int DIMENSIONS, double PRECISION) {
-    /* This is where the program needs to be parallelized. */
+size_t
+average_array(int rows, int columns, double INITIAL_ARRAY[rows][columns], double PRECISION, bool *precision_flag) {
 
-    bool precision_flag = false;
     int loop_count = 0;
-    while (!precision_flag) {
-        loop_count++;
-        precision_flag = true;
 
-        for (size_t i = 1; i < DIMENSIONS - 1; i++) {
-            for (size_t j = 1; j < DIMENSIONS - 1; j++) {
-                double previous_value = INITIAL_ARRAY[i][j];
-                average(&INITIAL_ARRAY[i][j], &INITIAL_ARRAY[i + 1][j], &INITIAL_ARRAY[i - 1][j],
-                        &INITIAL_ARRAY[i][j + 1], &INITIAL_ARRAY[i][j - 1]);
+    loop_count++;
 
-                if (precision_flag == true)
-                    precision_flag = in_precision(precision_flag, previous_value, INITIAL_ARRAY[i][j], PRECISION);
+    for (size_t i = 1; i < rows - 1; i++) {
+        for (size_t j = 1; j < columns - 1; j++) {
+            double previous_value = INITIAL_ARRAY[i][j];
+            average(&INITIAL_ARRAY[i][j], &INITIAL_ARRAY[i + 1][j], &INITIAL_ARRAY[i - 1][j],
+                    &INITIAL_ARRAY[i][j + 1], &INITIAL_ARRAY[i][j - 1]);
 
-            }
+            if (*precision_flag == true)
+                *precision_flag = in_precision(previous_value, INITIAL_ARRAY[i][j], PRECISION);
+
         }
     }
+
     return loop_count;
 }
 
-bool in_precision(bool current_precision, double previous_value, double current_value, double precision) {
-    if ((int) (previous_value / precision) == (int) (current_value / precision)) return current_precision;
+bool in_precision(double previous_value, double current_value, double precision) {
+    if ((int) (previous_value / precision) == (int) (current_value / precision)) return true;
     else return false;
 }
 

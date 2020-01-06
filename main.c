@@ -119,8 +119,6 @@ int main(int argc, char *argv[]) {
     }
 
 
-    MPI_Request request;
-
     // While ANY are not in precision.
 
     while (!IN_PRECISION_FLAG) {
@@ -130,6 +128,7 @@ int main(int argc, char *argv[]) {
         print_2d_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array);
         printf("\n");
 
+        int process_communication = MPI_PROC_NULL;
 
         if (NUMBER_OF_PROCESSES > 1) {
             if (my_rank == 0) {
@@ -137,33 +136,33 @@ int main(int argc, char *argv[]) {
 
                 // If my_rank + 1 has not exited.
 
-                MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
-                         MPI_STATUS_IGNORE);
-                MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
+                MPI_Sendrecv(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
+                             processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
+                             MPI_COMM_WORLD,
+                             MPI_STATUS_IGNORE);
 
             } else if (my_rank == NUMBER_OF_PROCESSES - 1) {
                 memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer,
                        sizeof(double) * DIMENSIONS); // Don't think it's necessary
 
                 // If my_rank - 1 has not exited.
-
-                MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
-                MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
-                         MPI_STATUS_IGNORE);
+                MPI_Sendrecv(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, processor_array[0], DIMENSIONS,
+                             MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
+                             MPI_STATUS_IGNORE);
             } else {
 
                 // If my_rank - 1 has not exited.
 
-                MPI_Ssend(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD);
-                MPI_Recv(processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
-                         MPI_STATUS_IGNORE);
+                MPI_Sendrecv(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, processor_array[0], DIMENSIONS,
+                             MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
+                             MPI_STATUS_IGNORE);
 
                 // If my_rank + 1 has not exited.
 
-                MPI_Ssend(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD);
-                MPI_Recv(processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0, MPI_COMM_WORLD,
-                         MPI_STATUS_IGNORE);
-
+                MPI_Sendrecv(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
+                             processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
+                             MPI_COMM_WORLD,
+                             MPI_STATUS_IGNORE);
             }
         }
 
@@ -264,6 +263,9 @@ setup_args(int *dimensions, double *precision, int *number_of_processes, int *pr
 
     MPI_Comm_size(MPI_COMM_WORLD, number_of_processes);
     MPI_Comm_rank(MPI_COMM_WORLD, process_rank);
+
+    if (*number_of_processes > *dimensions - 2) *number_of_processes = *dimensions - 2;
+    if (*process_rank > *number_of_processes - 1) MPI_Finalize();
 
 }
 

@@ -55,27 +55,27 @@ int main(int argc, char *argv[]) {
          * - 2d double array must be converted into 1d for the send buffer. This is only relevant on the root process*/
 
         memcpy(top_buffer, INITIAL_ARRAY[0], sizeof(double) * DIMENSIONS);
-
+        memcpy(bottom_buffer, INITIAL_ARRAY[DIMENSIONS - 1], sizeof(double) * DIMENSIONS);
 
         for (int i = 0; i < INNER_DIMENSIONS; i++) {
             memcpy(&send_buffer[i * DIMENSIONS], INITIAL_ARRAY[i + 1], sizeof(double) * DIMENSIONS);
         }
 
-        if (NUMBER_OF_PROCESSES > 1)
-            MPI_Ssend(INITIAL_ARRAY[DIMENSIONS - 1], DIMENSIONS, MPI_DOUBLE, NUMBER_OF_PROCESSES - 1, 0,
-                      MPI_COMM_WORLD);
-        memcpy(bottom_buffer, INITIAL_ARRAY[DIMENSIONS - 1], sizeof(double) * DIMENSIONS);
+        if (NUMBER_OF_PROCESSES > 1){
+            MPI_Send(bottom_buffer, DIMENSIONS, MPI_DOUBLE, NUMBER_OF_PROCESSES - 1, 0,
+                     MPI_COMM_WORLD);
+        }
 
-        for (int i = 0; i < DIMENSIONS; i++) printf("%f\t", INITIAL_ARRAY[DIMENSIONS - 1][i]);
 
         if (v_test_flag) {
-            printf("Split up array by dimensions. (Dimensions supplied: %d)\n", DIMENSIONS);
             print_2d_array(DIMENSIONS, DIMENSIONS, INITIAL_ARRAY);
             printf("\n");
         }
+
     } else if (my_rank == NUMBER_OF_PROCESSES - 1) {
         MPI_Recv(bottom_buffer, DIMENSIONS, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
+
 
     /* - MPI_Scatterv must be supplied the number of elements to send to each process, as Scatterv allows for a varying
      * number of elements.*/
@@ -107,81 +107,86 @@ int main(int argc, char *argv[]) {
 
     bool IN_PRECISION_FLAG = false;
 
-    if (NUMBER_OF_PROCESSES == 1) {
-        memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS);
+    /* Fill array of values. */
+
+    for (int i = 1; i < PROCESSOR_ROWS - 1; i++)
+        memcpy(processor_array[i], receive_buffer + ((i - 1) * DIMENSIONS), sizeof(double) * DIMENSIONS);
+
+    /* Handle absolute outer edge cases. */
+
+    if (my_rank == 0) memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS);
+    if (my_rank == NUMBER_OF_PROCESSES - 1)
         memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer, sizeof(double) * DIMENSIONS);
-        for (int i = 1; i < PROCESSOR_ROWS - 1; i++)
-            memcpy(processor_array[i], receive_buffer + ((i - 1) * DIMENSIONS), sizeof(double) * DIMENSIONS);
-
-    } else {
-        for (int i = 1; i < PROCESSOR_ROWS - 1; i++)
-            memcpy(processor_array[i], receive_buffer + ((i - 1) * DIMENSIONS), sizeof(double) * DIMENSIONS);
-    }
 
 
-    // While ANY are not in precision.
+    MPI_Status send_status_top, send_status_bottom;
 
+    bool top_lock = false, bottom_lock = false, first_run_flag = true;
     while (!IN_PRECISION_FLAG) {
-        IN_PRECISION_FLAG = true;
+
+        if (!first_run_flag) {
+            IN_PRECISION_FLAG = true;
+            if (NUMBER_OF_PROCESSES > 1) {
+                if (!top_lock && my_rank != 0) {
+                    MPI_Probe(my_rank - 1, MPI_ANY_TAG, MPI_COMM_WORLD, &send_status_top);
+
+                    int tag = 0;
+                    if (send_status_top.MPI_TAG == 1) {
+                        top_lock = true;
+                        tag = 1;
+                    }
+
+                    MPI_Recv(&processor_array[0], DIMENSIONS, MPI_DOUBLE, my_rank - 1, tag,
+                             MPI_COMM_WORLD, &send_status_top);
+
+                }
+
+                if (!bottom_lock && my_rank != NUMBER_OF_PROCESSES - 1) {
+                    MPI_Probe(my_rank + 1, MPI_ANY_TAG, MPI_COMM_WORLD, &send_status_bottom);
+                    int tag = 0;
+                    if (send_status_bottom.MPI_TAG == 1) {
+                        bottom_lock = true;
+                        tag = 1;
+                    }
+
+                    MPI_Recv(&processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, tag,
+                             MPI_COMM_WORLD,
+                             &send_status_bottom);
+
+                }
+            }
+
+            for (size_t i = 1; i < PROCESSOR_ROWS - 1; i++) {
+                for (size_t j = 1; j < PROCESSOR_COLUMNS - 1; j++) {
+                    double previous_value = processor_array[i][j];
+                    average(&processor_array[i][j], &processor_array[i + 1][j], &processor_array[i - 1][j],
+                            &processor_array[i][j + 1], &processor_array[i][j - 1]);
+
+                    if (IN_PRECISION_FLAG == true)
+                        IN_PRECISION_FLAG = in_precision(previous_value, processor_array[i][j], PRECISION);
+
+                }
+            }
+
+        } else first_run_flag = false;
+
         //sleep(1);
 
         print_2d_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array);
         printf("\n");
 
-        int process_communication = MPI_PROC_NULL;
+        if (NUMBER_OF_PROCESSES <= 1) continue;
 
-        if (NUMBER_OF_PROCESSES > 1) {
-            if (my_rank == 0) {
-                memcpy(processor_array[0], top_buffer, sizeof(double) * DIMENSIONS); // Necessary? Don't think so
+        int tag = 0;
+        if (IN_PRECISION_FLAG == true) tag = 1;
 
-                // If my_rank + 1 has not exited.
-
-                MPI_Sendrecv(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
-                             processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
-                             MPI_COMM_WORLD,
-                             MPI_STATUS_IGNORE);
-
-            } else if (my_rank == NUMBER_OF_PROCESSES - 1) {
-                memcpy(processor_array[PROCESSOR_ROWS - 1], bottom_buffer,
-                       sizeof(double) * DIMENSIONS); // Don't think it's necessary
-
-                // If my_rank - 1 has not exited.
-                MPI_Sendrecv(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, processor_array[0], DIMENSIONS,
-                             MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
-                             MPI_STATUS_IGNORE);
-            } else {
-
-                // If my_rank - 1 has not exited.
-
-                MPI_Sendrecv(processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, 0, processor_array[0], DIMENSIONS,
-                             MPI_DOUBLE, my_rank - 1, 0, MPI_COMM_WORLD,
-                             MPI_STATUS_IGNORE);
-
-                // If my_rank + 1 has not exited.
-
-                MPI_Sendrecv(processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
-                             processor_array[PROCESSOR_ROWS - 1], DIMENSIONS, MPI_DOUBLE, my_rank + 1, 0,
-                             MPI_COMM_WORLD,
-                             MPI_STATUS_IGNORE);
-            }
+        if (my_rank != 0) MPI_Send(&processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, tag, MPI_COMM_WORLD);
+        else if (my_rank != NUMBER_OF_PROCESSES - 1)
+            MPI_Send(&processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, tag, MPI_COMM_WORLD);
+        else {
+            MPI_Send(&processor_array[1], DIMENSIONS, MPI_DOUBLE, my_rank - 1, tag, MPI_COMM_WORLD);
+            MPI_Send(&processor_array[PROCESSOR_ROWS - 2], DIMENSIONS, MPI_DOUBLE, my_rank + 1, tag, MPI_COMM_WORLD);
         }
-
-
-        for (size_t i = 1; i < PROCESSOR_ROWS - 1; i++) {
-            for (size_t j = 1; j < PROCESSOR_COLUMNS - 1; j++) {
-                double previous_value = processor_array[i][j];
-                average(&processor_array[i][j], &processor_array[i + 1][j], &processor_array[i - 1][j],
-                        &processor_array[i][j + 1], &processor_array[i][j - 1]);
-
-                if (IN_PRECISION_FLAG == true)
-                    IN_PRECISION_FLAG = in_precision(previous_value, processor_array[i][j], PRECISION);
-
-            }
-        }
-
-        // Send precision to rank 0
-        // receive precision from rank 0
-
 
 
     }
@@ -198,7 +203,6 @@ int main(int argc, char *argv[]) {
 
 
     if (my_rank == 0) {
-
         memcpy(send_buffer, top_buffer, sizeof(double) * DIMENSIONS);
         memcpy(send_buffer + (DIMENSIONS * (DIMENSIONS - 1)), bottom_buffer, sizeof(double) * DIMENSIONS);
 

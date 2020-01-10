@@ -13,7 +13,7 @@
 #SBATCH --ntasks-per-node=16
 
 # Max time
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 
 # Mail
 #SBATCH --mail-type=END
@@ -25,5 +25,5 @@
 module load intel/mpi
 
 # Application
-mpirun -np $SLURM_NTASKS ./main -d 1250
+mpirun -np $SLURM_NTASKS ./main -d 5000
 

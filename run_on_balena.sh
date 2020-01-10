@@ -12,3 +12,7 @@ ssh -o LogLevel=error balena 'module load intel/compiler &&
             module load intel/mpi &&
             mpicc -std=c99 -o main source_files/main.c &&
             sbatch job_scripts/job_script.slm' 2>/dev/null
+
+touch RESULTS;
+
+echo "Dimension results" >> RESULTS;

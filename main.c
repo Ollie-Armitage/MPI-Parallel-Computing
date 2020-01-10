@@ -2,7 +2,8 @@
 #include "main.h"
 
 void interprocess_sends(double **processor_array, int send_count, int my_rank, bool IN_PRECISION_FLAG,
-                        int number_of_processes, int processor_rows);
+                        int number_of_processes, int processor_rows, MPI_Request *request_top,
+                        MPI_Request *request_bottom, bool first_run);
 
 void average_array(int rows, int columns, double **processor_array, bool *IN_PRECISION_FLAG, double PRECISION);
 
@@ -23,9 +24,9 @@ int main(int argc, char *argv[]) {
     /* MPI setup. */
     MPI_Init(&argc, &argv);
 
+
     setup_args(&DIMENSIONS, &PRECISION, &NUMBER_OF_PROCESSES, &my_rank, &argc, &argv, &d_test_flag, &p_test_flag,
                &v_test_flag);
-
     int INNER_DIMENSIONS = DIMENSIONS - 2;
 
     if (DIMENSIONS <= 2) {
@@ -34,7 +35,7 @@ int main(int argc, char *argv[]) {
     }
 
     if(NUMBER_OF_PROCESSES > DIMENSIONS - 2){
-        if(my_rank == 0) printf("Too many processes supplied! Please reduce the number of processes to below the input dimensions - 2. \n");
+        if(my_rank == 0) printf("Too many processes requested! Please reduce the number of processors to below the value of the input dimensions - 2. \n");
         MPI_Finalize();
         exit(1);
     }
@@ -44,15 +45,26 @@ int main(int argc, char *argv[]) {
     double *send_buffer = NULL;
 
     /* Hard set arrays for top and bottom rows of each processor. */
-    double top_processor_row[DIMENSIONS], bottom_processor_row[DIMENSIONS];
+    double * top_processor_row = malloc(sizeof(double)*DIMENSIONS);
+    double * bottom_processor_row = malloc(sizeof(double)*DIMENSIONS);
+
 
     /* Argument setup ends. */
 
     if (my_rank == 0) {
+
         /* For the purposes of this coursework, 2d array is generated on the first process before data is passed to other
         * processes. If not supplied a dimension, non-random 5x5 is generated. If supplied a dimension, random array
          * of that dimension is generated.*/
-        double INITIAL_ARRAY[DIMENSIONS][DIMENSIONS];
+        double ** INITIAL_ARRAY = malloc(sizeof(double)*DIMENSIONS);
+
+
+        for(int i = 0; i < DIMENSIONS; i++){
+                INITIAL_ARRAY[i] = malloc(sizeof(double)*DIMENSIONS);
+        }
+
+
+
         if (!d_test_flag) generate_non_random_array(DIMENSIONS, INITIAL_ARRAY);
         else generate_random_array(DIMENSIONS, INITIAL_ARRAY);
 
@@ -61,8 +73,8 @@ int main(int argc, char *argv[]) {
         /* In order to use the MPI_Scatterv function:
          * - 2d double array must be converted into 1d for the send buffer. This is only relevant on the root process*/
 
-        memcpy(top_processor_row, INITIAL_ARRAY[0], sizeof(double) * DIMENSIONS);
-        memcpy(bottom_processor_row, INITIAL_ARRAY[DIMENSIONS - 1], sizeof(double) * DIMENSIONS);
+        top_processor_row = INITIAL_ARRAY[0];
+        bottom_processor_row = INITIAL_ARRAY[DIMENSIONS - 1];
 
         send_buffer = malloc(sizeof(double) * INNER_DIMENSIONS * DIMENSIONS);
         for (int i = 0; i < INNER_DIMENSIONS; i++) {
@@ -82,6 +94,8 @@ int main(int argc, char *argv[]) {
 
     }
 
+    if (my_rank == NUMBER_OF_PROCESSES - 1 && NUMBER_OF_PROCESSES > 1)
+        MPI_Recv(bottom_processor_row, DIMENSIONS, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
     /* - MPI_Scatterv must be supplied the number of elements to send to each process, as Scatterv allows for a varying
      * number of elements.*/
@@ -107,30 +121,25 @@ int main(int argc, char *argv[]) {
     );
 
 
-    if (my_rank == NUMBER_OF_PROCESSES - 1 && NUMBER_OF_PROCESSES > 1)
-        MPI_Recv(bottom_processor_row, DIMENSIONS, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-
     PROCESSOR_ROWS = (send_counts[my_rank] / DIMENSIONS) + 2;
     PROCESSOR_COLUMNS = DIMENSIONS;
 
     processor_array = build_processor_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, receive_buffer, top_processor_row,
                                             bottom_processor_row, my_rank, NUMBER_OF_PROCESSES);
     MPI_Status send_status_top, send_status_bottom;
+    MPI_Request request_top, request_bottom;
 
     bool top_lock = false, bottom_lock = false, first_run_flag = true, IN_PRECISION_FLAG = false;
-    while (!IN_PRECISION_FLAG) {
 
+    while (!IN_PRECISION_FLAG) {
         if (first_run_flag && NUMBER_OF_PROCESSES > 1)
             interprocess_sends(processor_array, DIMENSIONS, my_rank, IN_PRECISION_FLAG, NUMBER_OF_PROCESSES,
-                               PROCESSOR_ROWS);
+                               PROCESSOR_ROWS, &request_top, &request_bottom, first_run_flag);
         else first_run_flag = false;
 
-        IN_PRECISION_FLAG = true;
-
         if (NUMBER_OF_PROCESSES > 1) {
-
             if (!top_lock && my_rank != 0) {
+
                 MPI_Probe(my_rank - 1, MPI_ANY_TAG, MPI_COMM_WORLD, &send_status_top);
 
                 int tag = 0;
@@ -156,18 +165,18 @@ int main(int argc, char *argv[]) {
             }
 
 
-            if (v_test_flag) {
-                //sleep(1);
-                print_2d_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array);
-                printf("\n");
-
-            }
-
             interprocess_sends(processor_array, DIMENSIONS, my_rank, IN_PRECISION_FLAG, NUMBER_OF_PROCESSES,
-                               PROCESSOR_ROWS);
+                               PROCESSOR_ROWS, &request_top, &request_bottom, first_run_flag);
 
         }
+        IN_PRECISION_FLAG = true;
         average_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array, &IN_PRECISION_FLAG, PRECISION);
+
+        if (v_test_flag) {
+            print_2d_array(PROCESSOR_ROWS, PROCESSOR_COLUMNS, processor_array);
+            printf("\n");
+        }
+
     }
 
     MPI_Gatherv(receive_buffer, send_counts[my_rank], MPI_DOUBLE, send_buffer, send_counts,
@@ -216,21 +225,30 @@ void average_array(int rows, int columns, double **processor_array, bool *IN_PRE
 }
 
 void interprocess_sends(double **processor_array, int send_count, int my_rank, bool IN_PRECISION_FLAG,
-                        int number_of_processes, int processor_rows) {
+                        int number_of_processes, int processor_rows, MPI_Request *request_top,
+                        MPI_Request *request_bottom, bool first_run) {
+
     int tag = 0;
     if (IN_PRECISION_FLAG == true) tag = 1;
 
     if (my_rank == 0) {
-        MPI_Send(processor_array[processor_rows - 2], send_count, MPI_DOUBLE, my_rank + 1, tag, MPI_COMM_WORLD);
+        if(!first_run) MPI_Wait(request_bottom, MPI_STATUS_IGNORE);
+        MPI_Isend(processor_array[processor_rows - 2], send_count, MPI_DOUBLE, my_rank + 1, tag, MPI_COMM_WORLD, request_bottom);
         return;
     }
     if (my_rank == number_of_processes - 1) {
-        MPI_Send(processor_array[1], send_count, MPI_DOUBLE, my_rank - 1, tag, MPI_COMM_WORLD);
+        if(!first_run) MPI_Wait(request_top, MPI_STATUS_IGNORE);
+        MPI_Isend(processor_array[1], send_count, MPI_DOUBLE, my_rank - 1, tag, MPI_COMM_WORLD, request_top);
         return;
     }
 
-    MPI_Send(processor_array[1], send_count, MPI_DOUBLE, my_rank - 1, tag, MPI_COMM_WORLD);
-    MPI_Send(processor_array[processor_rows - 2], send_count, MPI_DOUBLE, my_rank + 1, tag, MPI_COMM_WORLD);
+    if(!first_run) {
+        MPI_Wait(request_top, MPI_STATUS_IGNORE);
+        MPI_Wait(request_bottom, MPI_STATUS_IGNORE);
+    }
+
+    MPI_Isend(processor_array[1], send_count, MPI_DOUBLE, my_rank - 1, tag, MPI_COMM_WORLD, request_top);
+    MPI_Isend(processor_array[processor_rows - 2], send_count, MPI_DOUBLE, my_rank + 1, tag, MPI_COMM_WORLD, request_bottom);
 
 }
 
@@ -337,7 +355,7 @@ void print_2d_array(int rows, int columns, double **array) {
 /* For the purposes of the initial test array, random numbers will not be used, but instead a pre generated array
  * that's 5x5*/
 
-void generate_non_random_array(int DIMENSIONS, double array[][DIMENSIONS]) {
+void generate_non_random_array(int DIMENSIONS, double **array) {
     array[0][0] = 8.404724;
     array[0][1] = 7.569421;
     array[0][2] = 2.292463;
@@ -365,7 +383,7 @@ void generate_non_random_array(int DIMENSIONS, double array[][DIMENSIONS]) {
     array[4][4] = 6.725292;
 }
 
-void generate_random_array(int DIMENSIONS, double array[][DIMENSIONS]) {
+void generate_random_array(int DIMENSIONS, double **array) {
     srand(time(NULL));
     double random_value;
     for (int i = 0; i < DIMENSIONS; i++) {

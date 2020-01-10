@@ -9,9 +9,9 @@
 #include <stdbool.h>
 
 
-void generate_non_random_array(int DIMENSIONS, double array[][DIMENSIONS]);
+void generate_non_random_array(int DIMENSIONS, double **array);
 
-void generate_random_array(int DIMENSIONS, double array[][DIMENSIONS]);
+void generate_random_array(int DIMENSIONS, double **array);
 
 
 void print_2d_array(int rows, int columns, double **array);
